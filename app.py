@@ -216,7 +216,8 @@ def mosaic_html(rows, new_ids=None):
 <style>
   *{{box-sizing:border-box}}
   body{{margin:0;background:transparent;color:#fff;font-family:Arial,sans-serif}}
-  .flag-frame{{background:#24151e;padding:9px;border:2px solid #B78C54;border-radius:18px;
+  .mosaic-display{{width:min(100%, 650px);margin:0 auto}}
+  .flag-frame{{background:#24151e;padding:8px;border:2px solid #B78C54;border-radius:18px;
       box-shadow:0 14px 45px #230b1738;position:relative;overflow:hidden}}
   svg{{display:block;width:100%;height:auto;border-radius:9px;}}
   .tile-hit{{cursor:pointer;outline:none}}
@@ -229,7 +230,7 @@ def mosaic_html(rows, new_ids=None):
   #detail strong{{color:#fff5e5}}
   #detail .note{{color:#F2E4CE}}
 </style></head><body>
-  <div class="flag-frame">{svg}</div>
+  <div class="mosaic-display"><div class="flag-frame">{svg}</div>
   <div id="detail"><span>🖱️ Нажмите на открытый фрагмент мозаики, чтобы увидеть ответ студента</span></div>
   <script>
     const answers={serialized};
@@ -245,7 +246,7 @@ def mosaic_html(rows, new_ids=None):
       el.addEventListener('click',show);
       el.addEventListener('keydown',event=>{{if(event.key==='Enter'||event.key===' '){{event.preventDefault();show()}}}});
     }});
-  </script></body></html>"""
+  </script></div></body></html>"""
 
 
 STYLE = """<style>
@@ -274,6 +275,11 @@ html,body,.stApp,button,input,textarea{font-family:'Manrope','DejaVu Sans',sans-
   box-shadow:0 5px 15px #394a4510;margin-bottom:11px}
 .entry-name{font-weight:800;color:#A01B34;font-size:.94rem;margin-bottom:7px}
 .entry-answer{color:#243437;font-size:1.05rem;line-height:1.6;overflow-wrap:anywhere}
+.answer-browser{background:#FFFCF7;border:1px solid #E2D4BE;border-radius:20px;padding:20px 20px 24px;box-shadow:0 8px 22px #394a4510;margin-top:14px;min-height:290px}
+.answer-browser-kicker{color:#9C784B;font-size:.76rem;letter-spacing:.12em;font-weight:800;margin-bottom:13px}
+.answer-browser-name{font-size:1.22rem;color:#9D1730;font-weight:800;margin-bottom:13px;overflow-wrap:anywhere}
+.answer-browser-text{font-size:1.07rem;color:#23353A;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere}
+.answer-empty{color:#63716F;font-size:.96rem;line-height:1.7;padding:14px 0}
 .progress-note{font-weight:700;color:#7A6A5A;font-size:.89rem;margin:9px 0 0}
 .hint{background:#fff5e8;border:1px dashed #DDBA87;border-radius:16px;padding:13px 17px;color:#786042;margin:13px 0}
 .prompt-box{padding:17px 22px;background:#fff5e7;border:1px solid #EED2A7;border-radius:19px;margin:18px 0 16px;color:#624D38}
@@ -327,23 +333,61 @@ def wall_view(student_url):
             ' <span class="live">● В ПРЯМОМ ЭФИРЕ · 3 СЕК</span></div>', unsafe_allow_html=True,
         )
         st.progress(pieces / TOTAL_PIECES)
-        components.html(mosaic_html(rows, fresh_ids), height=830, scrolling=False)
-        if count == 0:
-            st.markdown('<div class="hint">🧩 Мозаика пока скрыта. Первый ответ откроет первые шесть элементов!</div>', unsafe_allow_html=True)
-        elif pieces == TOTAL_PIECES:
-            st.success("🎉 Мозаика Республики собрана! Спасибо всем участникам!")
-        else:
-            st.markdown('<div class="progress-note">✨ Каждый новый ответ открывает 6 фрагментов. Картина постепенно проявляется.</div>', unsafe_allow_html=True)
-        st.markdown('#### 📝 Последние мысли студентов')
-        if not rows:
-            st.caption("Первые ответы появятся здесь автоматически.")
-        for row in reversed(rows[-7:]):
-            with st.container():
+        # Keep the full flag and tile detail visible without cutting them off.
+        mosaic_col, answers_col = st.columns([1.95, 1.1], gap="large", vertical_alignment="top")
+        with mosaic_col:
+            components.html(mosaic_html(rows, fresh_ids), height=530, scrolling=False)
+            if count == 0:
+                st.markdown('<div class="hint">🧩 Мозаика пока скрыта. Первый ответ откроет первые шесть элементов!</div>', unsafe_allow_html=True)
+            elif pieces == TOTAL_PIECES:
+                st.success("🎉 Мозаика Республики собрана! Спасибо всем участникам!")
+            else:
+                st.markdown('<div class="progress-note">✨ Каждый ответ открывает 6 фрагментов общей мозаики.</div>', unsafe_allow_html=True)
+
+        with answers_col:
+            st.markdown("### 📜 Ответы студентов")
+            if not rows:
+                st.markdown('<div class="answer-browser"><div class="answer-empty">💬 Здесь будут появляться ответы. После первой отправки их можно листать кнопками.</div></div>', unsafe_allow_html=True)
+            else:
+                # Index is stored per browser session; other viewers and students are unaffected.
+                follow_latest = st.session_state.get("mosaic_follow_latest", True)
+                selected_id = st.session_state.get("mosaic_selected_answer_id")
+                ids = [int(row["id"]) for row in rows]
+                if follow_latest or selected_id not in ids:
+                    current = len(rows) - 1
+                else:
+                    current = ids.index(selected_id)
+
+                older, middle, newer = st.columns([1.2, .8, 1.2], gap="small", vertical_alignment="center")
+                with older:
+                    go_older = st.button("◀ Назад", key="mosaic_older", disabled=current == 0, use_container_width=True)
+                with newer:
+                    go_newer = st.button("Вперёд ▶", key="mosaic_newer", disabled=current == len(rows)-1, use_container_width=True)
+                if go_older:
+                    current -= 1
+                    st.session_state["mosaic_follow_latest"] = False
+                if go_newer:
+                    current += 1
+                    st.session_state["mosaic_follow_latest"] = current == len(rows) - 1
+                st.session_state["mosaic_selected_answer_id"] = ids[current]
+                with middle:
+                    st.markdown(f"<div style='text-align:center;color:#8D2738;font-weight:800;padding:7px 0'>{current+1} / {len(rows)}</div>", unsafe_allow_html=True)
+
+                active = rows[current]
                 st.markdown(
-                    f'<div class="entry-card"><div class="entry-name">👤 {html.escape(row["student_name"])}</div>'
-                    f'<div class="entry-answer">{html.escape(row["answer"])}</div></div>',
+                    '<div class="answer-browser">'
+                    '<div class="answer-browser-kicker">✦ МЫСЛЬ СТУДЕНТА</div>'
+                    f'<div class="answer-browser-name">👤 {html.escape(active["student_name"], quote=True)}</div>'
+                    f'<div class="answer-browser-text">{html.escape(active["answer"], quote=True)}</div>'
+                    '</div>',
                     unsafe_allow_html=True,
                 )
+                st.caption("← Более ранние ответы · Более новые →")
+                if not st.session_state.get("mosaic_follow_latest", True):
+                    if st.button("↪ К последнему ответу", key="mosaic_latest", use_container_width=True):
+                        st.session_state["mosaic_follow_latest"] = True
+                        st.session_state["mosaic_selected_answer_id"] = ids[-1]
+                        st.rerun(scope="fragment")
 
     live_mosaic()
     st.markdown('<div class="footer">✦ 29 ОКТЯБРЯ 1923 · ИСТОРИЧЕСКАЯ ПАМЯТЬ И ЗНАНИЯ ✦</div>', unsafe_allow_html=True)
